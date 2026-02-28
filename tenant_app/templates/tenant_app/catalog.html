@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Product Catalog - {{ request.tenant.schema_name|title }}</title>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap"
+        rel="stylesheet" />
+
+    <!-- jQuery CDN -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #ffffff;
+            --surface: #f8fafc;
+            --border: #e2e8f0;
+            --accent: #1e293b;
+            --text: #0f172a;
+            --muted: #64748b;
+            --radius: 6px;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'DM Sans', sans-serif;
+            padding-bottom: 80px;
+        }
+
+        header {
+            padding: 40px 60px 28px;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .brand {
+            font-family: 'Playfair Display', serif;
+            font-size: 2rem;
+            color: var(--accent);
+        }
+
+        .item-count {
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+
+        .toolbar {
+            padding: 32px 60px;
+        }
+
+        .search-input {
+            width: 100%;
+            max-width: 400px;
+            padding: 14px 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .table-wrap {
+            padding: 0 60px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        thead th {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 2px solid var(--accent);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 14px 16px;
+        }
+
+        .td-name {
+            font-family: 'Playfair Display', serif;
+            font-weight: 700;
+        }
+
+        .price {
+            font-weight: 600;
+        }
+
+        .empty-row td {
+            text-align: center;
+            padding: 60px;
+            color: var(--muted);
+        }
+
+        tbody {
+            transition: opacity 0.2s ease;
+        }
+
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 16px;
+            padding: 24px 60px;
+            border-top: 1px solid var(--border);
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 0.9rem;
+            color: var(--text);
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-family: inherit;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: var(--border);
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #page-info {
+            font-size: 0.9rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        @media (max-width: 640px) {
+
+            header,
+            .toolbar,
+            .table-wrap {
+                padding-left: 20px;
+                padding-right: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="brand">
+            Schema: {{ request.tenant.schema_name|title }}
+        </div>
+        <div class="item-count" id="count-label">
+            {{ total_count|default:0 }} Products
+        </div>
+    </header>
+
+    <div class="toolbar">
+        <input class="search-input" id="search" type="text" placeholder="Search products..." autocomplete="off" />
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Price</th>
+                    <th>SKU</th>
+                </tr>
+            </thead>
+            <tbody id="tbody">
+                {% for item in products %}
+                <tr>
+                    <td class="td-name">{{ item.name }}</td>
+                    <td class="price">${{ item.price }}</td>
+                    <td>{{ item.sku }}</td>
+                </tr>
+                {% empty %}
+                <tr class="empty-row">
+                    <td colspan="3">No products found</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="pagination">
+            <button id="prev-page" disabled>Previous</button>
+            <span id="page-info"></span>
+            <button id="next-page" disabled>Next</button>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function () {
+
+            let searchTimeout = null;
+            let currentPage = parseInt("{{ page|default:1 }}", 10);
+            let currentQuery = "";
+            let perPage = parseInt("{{ per_page|default:10 }}", 10);
+            let totalItems = parseInt("{{ total_count|default:0 }}", 10);
+
+            function fetchProducts() {
+                $("#tbody").css("opacity", "0.5");
+                $.ajax({
+                    url: `${window.location.pathname}?ajax=1`,
+                    type: "GET",
+                    data: {
+                        q: currentQuery,
+                        page: currentPage
+                    },
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest"
+                    },
+                    success: function (response) {
+                        totalItems = response.total;
+                        perPage = response.per_page;
+                        renderTable(response.products);
+                        updatePagination();
+                        $("#tbody").css("opacity", "1");
+                    },
+                    error: function () {
+                        $("#tbody").css("opacity", "1");
+                    }
+                });
+            }
+
+            $("#search").on("input", function () {
+                currentQuery = $(this).val().trim();
+                currentPage = 1;
+
+                if (searchTimeout) {
+                    clearTimeout(searchTimeout);
+                }
+
+                searchTimeout = setTimeout(fetchProducts, 300);
+            });
+
+            $("#prev-page").click(function () {
+                if (currentPage > 1) {
+                    currentPage--;
+                    fetchProducts();
+                }
+            });
+
+            $("#next-page").click(function () {
+                if (currentPage * perPage < totalItems) {
+                    currentPage++;
+                    fetchProducts();
+                }
+            });
+
+            function renderTable(products) {
+
+                let tbody = $("#tbody");
+                let countLabel = $("#count-label");
+
+                countLabel.text(totalItems + " Product" + (totalItems !== 1 ? "s" : ""));
+
+                if (!products.length) {
+                    tbody.html(`
+                <tr class="empty-row">
+                    <td colspan="3">No products found</td>
+                </tr>
+            `);
+                    return;
+                }
+
+                let rows = "";
+
+                $.each(products, function (index, product) {
+                    rows += `
+                <tr>
+                    <td class="td-name">${product.name}</td>
+                    <td class="price">$${product.price}</td>
+                    <td>${product.sku}</td>
+                </tr>
+            `;
+                });
+
+                tbody.html(rows);
+            }
+
+            function updatePagination() {
+                let totalPages = Math.ceil(totalItems / perPage) || 1;
+                $("#page-info").text(`Page ${currentPage} of ${totalPages}`);
+                $("#prev-page").prop("disabled", currentPage <= 1);
+                $("#next-page").prop("disabled", currentPage >= totalPages);
+            }
+
+            updatePagination();
+
+        });
+    </script>
+
+</body>
+
+</html>
